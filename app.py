@@ -1,63 +1,29 @@
 from datetime import datetime
-import os
+import io
 import sqlite3
+import pandas as pd
 import streamlit as st
+
+from database import DB_NAME, get_next_receipt_number, init_db
+from receipt_template import generate_receipt_html
 
 # Page Configuration
 st.set_page_config(
     page_title="District Administration - Jan Sunwai",
     page_icon="🏛️",
-    layout="centered",
+    layout="wide",
 )
 
-# Initialize SQLite Database & Auto-increment Receipt logic
-DB_NAME = "jan_sunwai.db"
-
-
-def init_db():
-  conn = sqlite3.connect(DB_NAME)
-  cursor = conn.cursor()
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS grievances (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            computer_code TEXT,
-            receipt_no TEXT,
-            receipt_date TEXT,
-            print_datetime TEXT,
-            applicant_name TEXT,
-            applicant_address TEXT,
-            subject TEXT,
-            marked_office TEXT,
-            details TEXT
-        )
-    """)
-  conn.commit()
-  conn.close()
-
-
+# Initialize DB
 init_db()
 
-
-def get_next_receipt_numbers():
-  """Generates next auto-incremented receipt number and computer code."""
-  conn = sqlite3.connect(DB_NAME)
-  cursor = conn.cursor()
-  cursor.execute("SELECT MAX(id) FROM grievances")
-  row = cursor.fetchone()
-  conn.close()
-
-  next_id = 1 if row[0] is None else row[0] + 1
-  current_year = datetime.now().strftime("%Y")
-
-  receipt_no = str(next_id)
-  computer_code = f"MANUAL/{next_id}"
-  return computer_code, receipt_no
-
-
-# Custom CSS for main UI header
+# Custom CSS for styling
 st.markdown(
     """
     <style>
+        .stApp {
+            background-color: #fafafa;
+        }
         .main-header {
             background-color: #1b365d;
             color: white;
@@ -66,7 +32,22 @@ st.markdown(
             font-size: 20px;
             font-weight: bold;
             border-radius: 5px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 45px;
+            white-space: pre-wrap;
+            background-color: #ffffff;
+            border-radius: 5px 5px 0 0;
+            padding: 10px 20px;
+            font-weight: bold;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #007bff !important;
+            color: white !important;
         }
     </style>
 """,
@@ -79,274 +60,190 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Initialize Session State for Form Autofill
-if "form_data" not in st.session_state:
-  auto_code, auto_receipt = get_next_receipt_numbers()
-  st.session_state.form_data = {
-      "computer_code": auto_code,
-      "receipt_no": auto_receipt,
-      "receipt_date": datetime.now().strftime("%d/%m/%Y"),
-      "applicant_name": "",
-      "applicant_address": "",
-      "subject": "",
-      "marked_office": "",
-      "details": "",
-  }
+# Top Horizontal Navigation Tabs
+tab_register, tab_records = st.tabs([
+    "📝 New Grievance Registration",
+    "📊 View & Export Records"
+])
+
+# ==========================================
+# TAB 1: NEW GRIEVANCE REGISTRATION
+# ==========================================
+with tab_register:
+    today_str = datetime.now().strftime("%d/%m/%Y")
+
+    def reset_form():
+        auto_receipt = get_next_receipt_number(today_str)
+        st.session_state.form_data = {
+            "receipt_no": auto_receipt,
+            "receipt_date": today_str,
+            "applicant_name": "",
+            "applicant_address": "",
+            "subject": "",
+            "marked_office": "",
+            "details": "",
+        }
+        st.session_state.show_receipt = False
+
+    if "form_data" not in st.session_state:
+        reset_form()
+
+    def fill_mock_data():
+        mock_date = "16/06/2026"
+        auto_receipt = get_next_receipt_number(mock_date)
+        st.session_state.form_data = {
+            "receipt_no": auto_receipt,
+            "receipt_date": mock_date,
+            "applicant_name": "कल्ला जाटव पुत्र हरजीत जाटव ७७७२०१८७५७",
+            "applicant_address": "दुबाबली तहसील विजयपुर",
+            "subject": "प्रार्थी का प्रधानमंत्री आवास योजना में अभी तक नाम नही जोडने बावत",
+            "marked_office": "CEO JP Vijaipur - CEO JP Vijaipur",
+            "details": "प्रार्थी का प्रधानमंत्री आवास योजना में अभी तक नाम नहीं जोड़ा गया है।",
+        }
+
+    _, form_col, _ = st.columns([1, 2, 1])
+
+    with form_col:
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            st.button("⚡ Load Mock Data", on_click=fill_mock_data, use_container_width=True)
+        with col_btn2:
+            st.button("🔄 Reset Form", on_click=reset_form, use_container_width=True)
+
+        with st.form("grievance_form"):
+            fd = st.session_state.form_data
+
+            receipt_date = st.text_input("Receipt Date (DD/MM/YYYY)", value=fd["receipt_date"])
+            
+            # Dynamically recalculate correct receipt number whenever date input changes
+            current_auto_receipt = get_next_receipt_number(receipt_date)
+
+            applicant_name = st.text_input("Applicant Name & Mobile *", value=fd["applicant_name"])
+            applicant_address = st.text_input("Applicant Address *", value=fd["applicant_address"])
+            subject = st.text_input("Subject *", value=fd["subject"])
+            marked_office = st.text_input("Marked Office *", value=fd["marked_office"])
+            details = st.text_area("Details / Grievance Description", value=fd["details"])
+
+            submitted = st.form_submit_button(
+                "Save to Database & Prepare Receipt", use_container_width=True
+            )
+
+        if submitted:
+            # Mandatory checks for Name, Address, Subject, and Marked Office
+            if not applicant_name.strip() or not applicant_address.strip() or not subject.strip() or not marked_office.strip():
+                st.error("⚠️ Please fill out all mandatory fields: Applicant Name, Address, Subject, and Marked Office!")
+            else:
+                try:
+                    conn = sqlite3.connect(DB_NAME)
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                            INSERT INTO grievances (receipt_no, receipt_date, print_datetime, applicant_name, applicant_address, subject, marked_office, details)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            current_auto_receipt,
+                            receipt_date,
+                            datetime.now().strftime("%d/%m/%Y %H:%M"),
+                            applicant_name,
+                            applicant_address,
+                            subject,
+                            marked_office,
+                            details,
+                        ),
+                    )
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Grievance #{current_auto_receipt} saved to database!")
+                    st.session_state.show_receipt = True
+                    st.session_state.latest_saved_receipt = {
+                        "receipt_no": current_auto_receipt,
+                        "receipt_date": receipt_date,
+                        "applicant_name": applicant_name,
+                        "applicant_address": applicant_address,
+                        "subject": subject,
+                        "marked_office": marked_office,
+                        "details": details,
+                    }
+                except Exception as e:
+                    st.error(f"Database Error: {e}")
+
+    if st.session_state.get("show_receipt", False):
+        saved_data = st.session_state.get("latest_saved_receipt", fd)
+        st.markdown("---")
+        st.subheader("🖨️ Receipt Preview & Print")
+
+        component_html = generate_receipt_html(saved_data)
+        st.components.v1.html(component_html, height=720, scrolling=True)
+
+        _, btn_col, _ = st.columns([1, 2, 1])
+        with btn_col:
+            if st.button("✅ Done / Start New Entry", type="primary", use_container_width=True):
+                reset_form()
+                st.rerun()
 
 
-def fill_mock_data():
-  auto_code, auto_receipt = get_next_receipt_numbers()
-  st.session_state.form_data = {
-      "computer_code": auto_code,
-      "receipt_no": auto_receipt,
-      "receipt_date": "16/06/2026",
-      "applicant_name": "कल्ला जाटव पुत्र हरजीत जाटव ७७७२०१८७५७",
-      "applicant_address": "दुबाबली तहसील विजयपुर",
-      "subject": "प्रार्थी का प्रधानमंत्री आवास योजना में अभी तक नाम नही जोडने बावत",
-      "marked_office": "CEO JP Vijaipur - CEO JP Vijaipur",
-      "details": "प्रार्थी का प्रधानमंत्री आवास योजना में अभी तक नाम नहीं जोड़ा गया है।",
-  }
+# ==========================================
+# TAB 2: VIEW & EXPORT RECORDS
+# ==========================================
+with tab_records:
+    st.subheader("🔍 Filter & View Grievance Records (Aavedan)")
 
+    with st.form("filter_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", value=datetime.now())
+        with col2:
+            end_date = st.date_input("End Date", value=datetime.now())
 
-# Action bar with Mock Data button
-col_spacer, col_btn = st.columns([4, 1.5])
-with col_btn:
-  st.button(
-      "⚡ Load Mock Data", on_click=fill_mock_data, use_container_width=True
-  )
+        search_submitted = st.form_submit_button(
+            "🔎 Search / Filter Records", use_container_width=True
+        )
 
-# Form Inputs
-with st.form("grievance_form"):
-  fd = st.session_state.form_data
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM grievances ORDER BY id DESC", conn)
+    conn.close()
 
-  # Disabled fields since they are autogenerated
-  computer_code = st.text_input(
-      "Computer Code (Autogenerated)",
-      value=fd["computer_code"],
-      disabled=True,
-  )
-  receipt_no = st.text_input(
-      "Receipt No (Autogenerated)", value=fd["receipt_no"], disabled=True
-  )
+    if not df.empty:
+        df["parsed_date"] = pd.to_datetime(
+            df["receipt_date"], format="%d/%m/%Y", errors="coerce"
+        ).dt.date
+        filtered_df = df[
+            (df["parsed_date"] >= start_date) & (df["parsed_date"] <= end_date)
+        ].copy()
+        filtered_df = filtered_df.drop(columns=["parsed_date"])
 
-  receipt_date = st.text_input(
-      "Receipt Date (DD/MM/YYYY)", value=fd["receipt_date"]
-  )
-  applicant_name = st.text_input(
-      "Applicant Name & Mobile", value=fd["applicant_name"]
-  )
-  applicant_address = st.text_input(
-      "Applicant Address", value=fd["applicant_address"]
-  )
-  subject = st.text_input("Subject", value=fd["subject"])
-  marked_office = st.text_input("Marked Office", value=fd["marked_office"])
-  details = st.text_area("Details / Grievance Description", value=fd["details"])
+        st.markdown(f"**Total Records Found:** `{len(filtered_df)}`")
 
-  submitted = st.form_submit_button(
-      "Save to Database & Prepare Receipt", use_container_width=True
-  )
+        if not filtered_df.empty:
+            st.dataframe(filtered_df, use_container_width=True)
 
-if submitted:
-  if not fd["receipt_no"] or not applicant_name:
-    st.error("Applicant Name is a mandatory field!")
-  else:
-    try:
-      conn = sqlite3.connect(DB_NAME)
-      cursor = conn.cursor()
-      cursor.execute(
-          """
-                INSERT INTO grievances (computer_code, receipt_no, receipt_date, print_datetime, applicant_name, applicant_address, subject, marked_office, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-          (
-              fd["computer_code"],
-              fd["receipt_no"],
-              receipt_date,
-              datetime.now().strftime("%d/%m/%Y %H:%M"),
-              applicant_name,
-              applicant_address,
-              subject,
-              marked_office,
-              details,
-          ),
-      )
-      conn.commit()
-      conn.close()
-      st.success("Grievance successfully saved to SQLite database!")
-      st.session_state.show_receipt = True
-    except Exception as e:
-      st.error(f"Database Error: {e}")
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                filtered_df.to_excel(
+                    writer, index=False, sheet_name="Grievances"
+                )
+            excel_data = excel_buffer.getvalue()
 
-# Render Printable A4 Portrait Receipt Section via Isolated Component
-if st.session_state.get("show_receipt", False):
-  st.markdown("---")
-  st.subheader("🖨️ Receipt Preview & Print")
-  st.info(
-      "Your receipt is ready below. Click the print button inside the box to"
-      " print or save as a PDF in **A4 Portrait** format."
-  )
-
-  import base64
-
-
-  def get_base64_image(image_path):
-    if os.path.exists(image_path):
-      with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode("utf-8")
-    return ""
-
-
-  left_logo_b64 = get_base64_image(os.path.join("src", "left_logo.jpg"))
-  right_logo_b64 = get_base64_image(os.path.join("src", "right_logo.png"))
-
-  left_img_tag = (
-      f'<img src="data:image/jpeg;base64,{left_logo_b64}" style="width:50px;'
-      ' height:50px; object-fit:contain;" />'
-      if left_logo_b64
-      else "<b>MP GOV</b>"
-  )
-  right_img_tag = (
-      f'<img src="data:image/png;base64,{right_logo_b64}" style="width:100px;'
-      ' height:auto; object-fit:contain;" />'
-      if right_logo_b64
-      else "<b>NIC</b>"
-  )
-
-  current_time = datetime.now().strftime("%d/%m/%Y %H:%M")
-
-  # HTML template with center-aligned headers, outer/inner borders, and top-middle content positioning
-  component_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="UTF-8">
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            background-color: #f9f9f9;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start; /* Top alignment */
-        }}
-        .receipt-container {{
-            width: 100%;
-            max-width: 650px;
-            background: white;
-            padding: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }}
-        .receipt-table {{
-            width: 100%;
-            border-collapse: collapse;
-            border: 2px solid black; /* Outer Border */
-        }}
-        .receipt-table th, .receipt-table td {{
-            border: 1px solid black; /* Inner Borders */
-            padding: 8px 10px;
-            font-size: 11pt;
-            vertical-align: middle;
-            color: black;
-            text-align: left;
-        }}
-        .center {{
-            text-align: center; /* Center Aligned Header */
-        }}
-        .print-btn-container {{
-            text-align: center;
-            margin-top: 20px;
-        }}
-        .print-btn {{
-            background-color: #007bff;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-        }}
-        .print-btn:hover {{
-            background-color: #0056b3;
-        }}
-        @media print {{
-            body {{
-                background: white;
-                display: block;
-            }}
-            .print-btn-container {{
-                display: none;
-            }}
-            .receipt-container {{
-                box-shadow: none;
-                width: 100%;
-                margin: 0;
-                padding: 0;
-            }}
-            @page {{
-                size: A4 portrait;
-                margin: 15mm;
-            }}
-        }}
-    </style>
-    </head>
-    <body>
-
-    <div class="receipt-container">
-        <table class="receipt-table">
-            <tr>
-                <td class="center" style="text-align: center; width: 16%;">
-                    {left_img_tag}
-                </td>
-                <td style="text-align: center; width: 64%;">
-                    <span style="font-size: 13pt;">कार्यालय कलेक्टर</span><br/>
-                    <span style="font-size: 14pt; font-weight: bold;">** जन आवेदन **</span><br/>
-                    <span style="font-size: 10pt;">आपकी शिकायत दर्ज कर ली गयी हैं जिसका विवरण नीचे दिया गया हैं</span>
-                </td>
-                <td class="center" style="text-align: center; width: 20%;">
-                    {right_img_tag}
-                </td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Computer Code</td>
-                <td>{fd['computer_code']}</td>
-                <td style="text-align: right; font-size: 9.5pt;">Print Date time {current_time}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Date</td>
-                <td>{receipt_date}</td>
-                <td style="text-align: right; font-size: 9.5pt;">Receipt No {fd['receipt_no']}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Applicant Name</td>
-                <td colspan="2">{applicant_name}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Applicant Address</td>
-                <td colspan="2">{applicant_address}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Subject</td>
-                <td colspan="2">{subject}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Marked Office</td>
-                <td colspan="2">{marked_office}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: bold;">Details</td>
-                <td colspan="2">{details}</td>
-            </tr>
-        </table>
-        
-        <div class="print-btn-container">
-            <button class="print-btn" onclick="window.print()">🖨️ Print / Save Receipt as A4 Portrait PDF</button>
-        </div>
-    </div>
-
-    </body>
-    </html>
-    """
-
-  st.components.v1.html(component_html, height=520, scrolling=True)
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                st.download_button(
+                    label="📥 Export Filtered Data to Excel (.xlsx)",
+                    data=excel_data,
+                    file_name=f"jan_sunwai_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+            with col_exp2:
+                csv_data = filtered_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Export Filtered Data to CSV",
+                    data=csv_data,
+                    file_name=f"jan_sunwai_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        else:
+            st.warning("No records found for the selected date range.")
+    else:
+        st.info("No grievance records registered in the database yet.")
