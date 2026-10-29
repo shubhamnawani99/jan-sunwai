@@ -80,7 +80,7 @@ def generate_receipt_html(saved_data):
         body {{ font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 10px; display: flex; justify-content: center; align-items: flex-start; }}
         .receipt-container {{ width: 100%; max-width: 650px; background: white; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
         .receipt-section {{ height: 48%; }}
-        .cut-line {{ border-top: 2px dashed #666; margin: 25px 0; text-align: center; position: relative; }}
+        .cut-line {{ border-top: 2px dashed #666; margin: 75px 0; text-align: center; position: relative; }}
         .cut-line span {{ background: white; padding: 0 10px; font-size: 9pt; color: #666; position: relative; top: -10px; }}
         .receipt-table {{ width: 100%; border-collapse: collapse; border: 1.5px solid black; }}
         .receipt-table th, .receipt-table td {{ border: 1px solid black; padding: 5px 8px; font-size: 9.5pt; vertical-align: middle; color: black; text-align: left; }}
