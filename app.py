@@ -2,6 +2,7 @@ from datetime import datetime
 import io
 import pandas as pd
 import streamlit as st
+from sqlalchemy import text  # <--- Add this line here
 
 from database import get_connection, authenticate_user, create_user, get_next_receipt_number, init_db
 from receipt_template import generate_receipt_html
