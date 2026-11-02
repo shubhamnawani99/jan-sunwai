@@ -94,22 +94,18 @@ st.markdown(
             gap: 8px;
             background-color: transparent;
         }
-        .stTabs [data-baseweb="tab"] {
+        .stTabs [aria-selected="true"] {
+            background-color: #007bff !important;
+            color: white !important;
+            border-color: #007bff !important;
             height: 45px !important;
             white-space: pre-wrap !important;
-            background-color: #ffffff !important;
             border-radius: 10px 10px 0px 0px !important;
             border: 1px solid #e0e0e0 !important;
             border-bottom: none !important;
             padding: 10px 20px !important;
             font-weight: bold !important;
-            color: #333333 !important;
             overflow: hidden !important;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #007bff !important;
-            color: white !important;
-            border-color: #007bff !important;
         }
     </style>
 """,
