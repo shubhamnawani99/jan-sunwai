@@ -1,0 +1,9 @@
+[theme]
+primaryColor = "#007bff"
+backgroundColor = "#ffffff"
+textColor = "#000000"
+base = "light"
+
+[client]
+# Prevents users from manually toggling to dark mode via settings menu
+toolbarMode = "minimal"
