@@ -2,7 +2,7 @@ from datetime import datetime
 import io
 import pandas as pd
 import streamlit as st
-from sqlalchemy import text  # <--- Add this line here
+from sqlalchemy import text
 
 from database import get_connection, authenticate_user, create_user, get_next_receipt_number, init_db
 from receipt_template import generate_receipt_html
@@ -13,6 +13,17 @@ st.set_page_config(
     page_icon="🏛️",
     layout="wide",
 )
+
+st.markdown("""
+    <style>
+        /* Hide theme toggle options and header buttons */
+        [data-testid="stHeader"] {
+            visibility: hidden;
+            height: 0%;
+        }
+
+    </style>
+""", unsafe_allow_html=True)
 
 # Initialize DB and default users
 init_db()
@@ -69,18 +80,37 @@ if not st.session_state.logged_in:
 st.markdown(
     """
     <style>
+        .stMainBlockContainer {
+            padding-top: 10px;
+        }
         .stApp { background-color: #fafafa; }
         .main-header {
             background-color: #1b365d; color: white; padding: 15px;
             text-align: center; font-size: 20px; font-weight: bold;
-            border-radius: 5px; margin-bottom: 15px;
+            border-radius: 8px; margin-bottom: 15px;
         }
-        .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+        /* Tab CSS Fix for Cloud & Local Environments */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            background-color: transparent;
+        }
         .stTabs [data-baseweb="tab"] {
-            height: 45px; white-space: pre-wrap; background-color: #ffffff;
-            border-radius: 5px 5px 0 0; padding: 10px 20px; font-weight: bold;
+            height: 45px !important;
+            white-space: pre-wrap !important;
+            background-color: #ffffff !important;
+            border-radius: 10px 10px 0px 0px !important;
+            border: 1px solid #e0e0e0 !important;
+            border-bottom: none !important;
+            padding: 10px 20px !important;
+            font-weight: bold !important;
+            color: #333333 !important;
+            overflow: hidden !important;
         }
-        .stTabs [aria-selected="true"] { background-color: #007bff !important; color: white !important; }
+        .stTabs [aria-selected="true"] {
+            background-color: #007bff !important;
+            color: white !important;
+            border-color: #007bff !important;
+        }
     </style>
 """,
     unsafe_allow_html=True,
@@ -120,9 +150,10 @@ with st.sidebar:
 
 st.markdown('<div class="main-header">कार्यालय कलेक्टर - जन आवेदन (Jan Sunwai)</div>', unsafe_allow_html=True)
 
-tab_register, tab_records = st.tabs([
+tab_register, tab_records, tab_search_print = st.tabs([
     "📝 New Grievance Registration",
-    "📊 View & Export Records"
+    "📊 View & Export Records",
+    "🖨️ Search & Print Receipt"
 ])
 
 # ==========================================
@@ -148,7 +179,7 @@ with tab_register:
         reset_form()
 
     def fill_mock_data():
-        mock_date = "16/06/2026"
+        mock_date = "29/10/2026"
         auto_receipt = get_next_receipt_number(mock_date)
         st.session_state.form_data = {
             "receipt_no": auto_receipt,
@@ -294,3 +325,68 @@ with tab_records:
             st.warning("No records found for the selected date range.")
     else:
         st.info("No grievance records registered in the database yet.")
+
+
+# ==========================================
+# TAB 3: SEARCH & PRINT RECEIPT BY DATE & ID
+# ==========================================
+with tab_search_print:
+    st.subheader("🔎 Search & Print Receipt by Reference ID & Date")
+    st.caption("Both parameters are mandatory to fetch and print the receipt.")
+
+    _, search_col, _ = st.columns([1, 2, 1])
+
+    with search_col:
+        with st.form("search_receipt_form"):
+            search_date = st.date_input("Receipt Date *", value=datetime.now())
+            search_receipt_no = st.text_input("Receipt / Reference Number *", placeholder="e.g. 101")
+            
+            search_btn = st.form_submit_button("🔍 Find Receipt", use_container_width=True)
+
+        if search_btn:
+            formatted_search_date = search_date.strftime("%d/%m/%Y")
+            
+            # Strict Validation
+            if not search_receipt_no.strip():
+                st.error("⚠️ Please enter a valid Receipt / Reference Number.")
+            else:
+                try:
+                    conn = get_connection()
+                    with conn.session as s:
+                        result = s.execute(
+                            text("""
+                                SELECT receipt_no, receipt_date, applicant_name, applicant_address, subject, marked_office, details
+                                FROM grievances
+                                WHERE TRIM(receipt_no) = :receipt_no AND TRIM(receipt_date) = :receipt_date
+                                LIMIT 1
+                            """),
+                            {
+                                "receipt_no": search_receipt_no.strip(),
+                                "receipt_date": formatted_search_date
+                            }
+                        ).fetchone()
+
+                    if result:
+                        st.session_state.found_receipt = {
+                            "receipt_no": result[0],
+                            "receipt_date": result[1],
+                            "applicant_name": result[2],
+                            "applicant_address": result[3],
+                            "subject": result[4],
+                            "marked_office": result[5],
+                            "details": result[6],
+                        }
+                        st.success(f"✅ Found record for Receipt #{search_receipt_no.strip()} on {formatted_search_date}!")
+                    else:
+                        st.session_state.found_receipt = None
+                        st.error(f"❌ No record found matching Receipt No. **{search_receipt_no.strip()}** on Date **{formatted_search_date}**.")
+                except Exception as e:
+                    st.error(f"Database Query Error: {e}")
+
+    # Display receipt if found
+    if st.session_state.get("found_receipt"):
+        st.markdown("---")
+        st.subheader(f"🖨️ Receipt Preview — #{st.session_state.found_receipt['receipt_no']}")
+        
+        receipt_html = generate_receipt_html(st.session_state.found_receipt)
+        st.components.v1.html(receipt_html, height=720, scrolling=True)
