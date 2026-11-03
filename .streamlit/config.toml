@@ -7,3 +7,8 @@ base = "light"
 [client]
 # Prevents users from manually toggling to dark mode via settings menu
 toolbarMode = "minimal"
+
+[server]
+# Keep idle browser connection sessions alive on the server side
+pingInterval = 30
+pingTimeout = 60000

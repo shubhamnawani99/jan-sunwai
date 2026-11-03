@@ -262,6 +262,12 @@ with tab_register:
         component_html = generate_receipt_html(saved_data)
         st.components.v1.html(component_html, height=720, scrolling=True)
 
+        _, btn_col, _ = st.columns([1, 2, 1])
+        with btn_col:
+            if st.button("✅ Done / Start New Entry", type="primary", use_container_width=True):
+                reset_form()
+                st.rerun()
+
 
 # ==========================================
 # TAB 2: VIEW & EXPORT RECORDS
