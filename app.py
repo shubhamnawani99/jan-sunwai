@@ -4,7 +4,14 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import text
 
-from database import get_connection, authenticate_user, create_user, get_next_receipt_number, init_db
+from database import (
+    get_connection,
+    authenticate_user,
+    create_user,
+    get_next_receipt_number,
+    init_db,
+    update_grievance,
+)
 from receipt_template import generate_receipt_html
 
 # Page Configuration
@@ -21,7 +28,6 @@ st.markdown("""
             visibility: hidden;
             height: 0%;
         }
-
     </style>
 """, unsafe_allow_html=True)
 
@@ -146,10 +152,11 @@ with st.sidebar:
 
 st.markdown('<div class="main-header">कार्यालय कलेक्टर - जन आवेदन (Jan Sunwai)</div>', unsafe_allow_html=True)
 
-tab_register, tab_records, tab_search_print = st.tabs([
+tab_register, tab_records, tab_search_print, tab_edit = st.tabs([
     "📝 New Grievance Registration",
     "📊 View & Export Records",
-    "🖨️ Search & Print Receipt"
+    "🖨️ Search & Print Receipt",
+    "✏️ Edit & Update Records"
 ])
 
 # ==========================================
@@ -254,12 +261,6 @@ with tab_register:
 
         component_html = generate_receipt_html(saved_data)
         st.components.v1.html(component_html, height=720, scrolling=True)
-
-        _, btn_col, _ = st.columns([1, 2, 1])
-        with btn_col:
-            if st.button("✅ Done / Start New Entry", type="primary", use_container_width=True):
-                reset_form()
-                st.rerun()
 
 
 # ==========================================
@@ -386,3 +387,137 @@ with tab_search_print:
         
         receipt_html = generate_receipt_html(st.session_state.found_receipt)
         st.components.v1.html(receipt_html, height=720, scrolling=True)
+
+
+# ==========================================
+# TAB 4: EDIT & UPDATE RECORDS
+# ==========================================
+with tab_edit:
+    st.subheader("✏️ Search & Edit Grievance Record")
+    st.caption("Search by Database Record ID or Receipt Number & Date to modify record details.")
+
+    _, edit_search_col, _ = st.columns([1, 2, 1])
+
+    with edit_search_col:
+        search_type = st.radio("Search Method", ["By Receipt Number & Date", "By Database ID"], horizontal=True)
+
+        if search_type == "By Receipt Number & Date":
+            with st.form("edit_search_by_receipt_form"):
+                e_search_date = st.date_input("Receipt Date *", value=datetime.now(), key="edit_date")
+                e_search_receipt_no = st.text_input("Receipt / Reference Number *", placeholder="e.g. 01")
+                e_search_btn1 = st.form_submit_button("🔍 Find Record to Edit", use_container_width=True)
+
+            if e_search_btn1:
+                formatted_e_date = e_search_date.strftime("%d/%m/%Y")
+                if not e_search_receipt_no.strip():
+                    st.error("⚠️ Please enter a Receipt Number.")
+                else:
+                    try:
+                        conn = get_connection()
+                        with conn.session as s:
+                            rec = s.execute(
+                                text("""
+                                    SELECT id, receipt_no, receipt_date, applicant_name, applicant_address, subject, marked_office, details
+                                    FROM grievances
+                                    WHERE TRIM(receipt_no) = :r_no AND TRIM(receipt_date) = :r_date
+                                    LIMIT 1
+                                """),
+                                {"r_no": e_search_receipt_no.strip(), "r_date": formatted_e_date}
+                            ).fetchone()
+
+                        if rec:
+                            st.session_state.edit_record = {
+                                "id": rec[0],
+                                "receipt_no": rec[1],
+                                "receipt_date": rec[2],
+                                "applicant_name": rec[3],
+                                "applicant_address": rec[4],
+                                "subject": rec[5],
+                                "marked_office": rec[6],
+                                "details": rec[7],
+                            }
+                            st.success(f"✅ Found record ID #{rec[0]} for Receipt #{rec[1]}!")
+                        else:
+                            st.session_state.edit_record = None
+                            st.error("❌ No matching record found.")
+                    except Exception as e:
+                        st.error(f"Database Query Error: {e}")
+
+        else:
+            with st.form("edit_search_by_id_form"):
+                e_search_id = st.number_input("Database Record ID *", min_value=1, step=1)
+                e_search_btn2 = st.form_submit_button("🔍 Find Record to Edit", use_container_width=True)
+
+            if e_search_btn2:
+                try:
+                    conn = get_connection()
+                    with conn.session as s:
+                        rec = s.execute(
+                            text("""
+                                SELECT id, receipt_no, receipt_date, applicant_name, applicant_address, subject, marked_office, details
+                                FROM grievances
+                                WHERE id = :id
+                                LIMIT 1
+                            """),
+                            {"id": e_search_id}
+                        ).fetchone()
+
+                    if rec:
+                        st.session_state.edit_record = {
+                            "id": rec[0],
+                            "receipt_no": rec[1],
+                            "receipt_date": rec[2],
+                            "applicant_name": rec[3],
+                            "applicant_address": rec[4],
+                            "subject": rec[5],
+                            "marked_office": rec[6],
+                            "details": rec[7],
+                        }
+                        st.success(f"✅ Found record ID #{rec[0]}!")
+                    else:
+                        st.session_state.edit_record = None
+                        st.error(f"❌ No record found with ID #{e_search_id}.")
+                except Exception as e:
+                    st.error(f"Database Query Error: {e}")
+
+    # Editable Form Section
+    if st.session_state.get("edit_record"):
+        rec_data = st.session_state.edit_record
+        st.markdown("---")
+        st.subheader(f"📝 Editing Record ID #{rec_data['id']} (Receipt #{rec_data['receipt_no']} - {rec_data['receipt_date']})")
+
+        _, edit_form_col, _ = st.columns([1, 2, 1])
+        with edit_form_col:
+            with st.form("update_grievance_form"):
+                u_name = st.text_input("Applicant Name & Mobile *", value=rec_data["applicant_name"])
+                u_address = st.text_input("Applicant Address *", value=rec_data["applicant_address"])
+                u_subject = st.text_input("Subject *", value=rec_data["subject"])
+                u_marked_office = st.text_input("Marked Office *", value=rec_data["marked_office"])
+                u_details = st.text_area("Details / Grievance Description", value=rec_data["details"] or "")
+
+                save_update = st.form_submit_button("💾 Save Changes to Database", type="primary", use_container_width=True)
+
+            if save_update:
+                if not u_name.strip() or not u_address.strip() or not u_subject.strip() or not u_marked_office.strip():
+                    st.error("⚠️ Please fill out all required fields!")
+                else:
+                    try:
+                        update_grievance(
+                            record_id=rec_data["id"],
+                            applicant_name=u_name.strip(),
+                            applicant_address=u_address.strip(),
+                            subject=u_subject.strip(),
+                            marked_office=u_marked_office.strip(),
+                            details=u_details.strip()
+                        )
+                        st.success(f"✅ Record #{rec_data['id']} successfully updated!")
+                        # Update session state with edited values
+                        st.session_state.edit_record.update({
+                            "applicant_name": u_name.strip(),
+                            "applicant_address": u_address.strip(),
+                            "subject": u_subject.strip(),
+                            "marked_office": u_marked_office.strip(),
+                            "details": u_details.strip(),
+                        })
+                    except Exception as e:
+                        st.error(f"❌ Failed to update record: {e}")
