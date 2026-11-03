@@ -3,6 +3,7 @@ import io
 import pandas as pd
 import streamlit as st
 from sqlalchemy import text
+from zoneinfo import ZoneInfo  # <-- Add this import at the top of your app.py
 
 from database import (
     get_connection,
@@ -222,6 +223,10 @@ with tab_register:
             else:
                 try:
                     conn = get_connection()
+                    
+                    # Get current time explicitly in Indian Standard Time (UTC+5:30)
+                    ist_now = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d/%m/%Y %H:%M")
+
                     with conn.session as s:
                         s.execute(
                             text("""
@@ -231,7 +236,7 @@ with tab_register:
                             {
                                 "receipt_no": current_auto_receipt,
                                 "receipt_date": receipt_date,
-                                "print_datetime": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                                "print_datetime": ist_now,  # <-- Uses the accurate IST timestamp
                                 "applicant_name": applicant_name,
                                 "applicant_address": applicant_address,
                                 "subject": subject,
