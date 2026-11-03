@@ -1,6 +1,7 @@
 import base64
 from datetime import datetime
 import os
+from zoneinfo import ZoneInfo
 
 def get_base64_image(image_path):
     if os.path.exists(image_path):
@@ -23,7 +24,8 @@ def generate_receipt_html(saved_data):
         else "<b>NIC</b>"
     )
 
-    current_time = datetime.now().strftime("%d/%m/%Y %H:%M")
+    # Use explicit Indian Standard Time (IST, UTC+5:30) for print time
+    current_time = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d/%m/%Y %H:%M")
 
     single_receipt_markup = f"""
     <table class="receipt-table">
@@ -80,10 +82,10 @@ def generate_receipt_html(saved_data):
         body {{ font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 10px; display: flex; justify-content: center; align-items: flex-start; }}
         .receipt-container {{ width: 100%; max-width: 650px; background: white; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
         .receipt-section {{ height: 48%; }}
-        .cut-line {{ border-top: 2px dashed #666; margin: 105px 0; text-align: center; position: relative; }}
+        .cut-line {{ border-top: 1px dashed #666; margin: 150px 0; text-align: center; position: relative; }}
         .cut-line span {{ background: white; padding: 0 10px; font-size: 9pt; color: #666; position: relative; top: -10px; }}
         .receipt-table {{ width: 100%; border-collapse: collapse; border: 1.5px solid black; }}
-        .receipt-table th, .receipt-table td {{ border: 1px solid black; padding: 5px 8px; font-size: 9.5pt; vertical-align: middle; color: black; text-align: left; }}
+        .receipt-table th, .receipt-table td {{ border: 1.5px solid black; padding: 4px 6px; font-size: 9.5pt; vertical-align: middle; color: black; text-align: left; }}
         .center {{ text-align: center; }}
         .print-btn-container {{ text-align: center; margin-top: 15px; }}
         .print-btn {{ background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 14px; font-weight: bold; cursor: pointer; }}
